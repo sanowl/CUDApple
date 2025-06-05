@@ -30,6 +30,34 @@ pub enum Statement {
         value: Expression,
     },
     Expression(Box<Expression>),
+    SyncThreads,  // __syncthreads()
+    AtomicOperation {
+        operation: AtomicOp,
+        target: Expression,
+        value: Expression,
+    },
+    StructDecl {
+        name: String,
+        fields: Vec<Declaration>,
+    },
+    DeviceFunction {
+        name: String,
+        parameters: Vec<Parameter>,
+        return_type: Type,
+        body: Block,
+    },
+    TextureDecl(TextureDeclaration),
+    TextureOperation {
+        operation: TextureOp,
+        texture: String,
+        coordinates: Vec<Expression>,
+        value: Option<Expression>,
+    },
+    MemoryFence(MemoryFence),
+    MemoryBarrier {
+        scope: SyncScope,
+        fence: MemoryFence,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -37,6 +65,8 @@ pub struct Declaration {
     pub var_type: Type,
     pub name: String,
     pub initializer: Option<Expression>,
+    pub memory_space: MemorySpace,
+    pub qualifiers: Vec<Qualifier>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -72,6 +102,19 @@ pub enum Type {
     Float,
     Void,
     Pointer(Box<Type>),
+    Vector(Box<Type>, usize),  // For float4, int2 etc
+    Struct(String),  // For user-defined structs
+    Template(String, Vec<Type>),  // For template types
+    Array(Box<Type>, Option<usize>),  // For fixed and dynamic arrays
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum MemorySpace {
+    Global,
+    Shared,
+    Constant,
+    Texture,
+    Default,
 }
 
 impl fmt::Display for Type {
@@ -121,4 +164,70 @@ pub struct Parameter {
 pub enum Qualifier {
     Restrict,
     None,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum AtomicOp {
+    Add,
+    Sub,
+    Exchange,
+    Min,
+    Max,
+    And,
+    Or,
+    Xor,
+    CAS,  // Compare and swap
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum MathFunction {
+    Sin,
+    Cos,
+    Tan,
+    Exp,
+    Log,
+    Sqrt,
+    Pow,
+    Max,
+    Min,
+    Abs,
+    Floor,
+    Ceil,
+    Round,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TextureType {
+    Tex1D,
+    Tex2D,
+    Tex3D,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TextureDeclaration {
+    pub name: String,
+    pub tex_type: TextureType,
+    pub element_type: Type,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TextureOp {
+    Read,
+    Write,
+    Sample,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum MemoryFence {
+    System,
+    Global,
+    Shared,
+    Thread,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum SyncScope {
+    Block,
+    Grid,
+    System,
 }

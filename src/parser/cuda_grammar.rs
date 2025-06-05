@@ -2,11 +2,45 @@ use crate::parser::unified_ast::*;
 
 peg::parser! {
     pub grammar cuda_parser() for str {
-        rule _() = quiet!{([' ' | '\t' | '\n' | '\r'] / comment())*}
+    rule _() = quiet!{([' ' | '\t' | '\n' | '\r'] / comment())*}
 
-        rule comment() = block_comment() / line_comment()
-        rule block_comment() = "/*" (!"*/" [_])* "*/"
-        rule line_comment() = "//" (!"\n" [_])* ("\n" / ![_])
+    rule comment() = block_comment() / line_comment()
+    rule block_comment() = "/*" (!"*/" [_])* "*/"
+    rule line_comment() = "//" (!"\n" [_])* ("\n" / ![_])
+
+    rule memory_space() -> MemorySpace
+        = "__shared__" { MemorySpace::Shared }
+        / "__constant__" { MemorySpace::Constant }
+        / "__device__" { MemorySpace::Default }
+        / { MemorySpace::Global }
+
+    rule vector_type() -> Type
+        = base:("float" / "int" / "double") size:$(['1'..='4']) {
+            let base_type = match base {
+                "float" => Type::Float,
+                "int" => Type::Int,
+                "double" => Type::Float, // We'll map double to float for Metal
+                _ => unreachable!()
+            };
+            Type::Vector(Box::new(base_type), size.parse().unwrap())
+        }
+
+    rule atomic_operation() -> Statement
+        = "atomicAdd" "(" target:expression() "," value:expression() ")" {
+            Statement::AtomicOperation {
+                operation: AtomicOp::Add,
+                target,
+                value,
+            }
+        }
+        / "atomicSub" "(" target:expression() "," value:expression() ")" {
+            Statement::AtomicOperation {
+                operation: AtomicOp::Sub,
+                target,
+                value,
+            }
+        }
+        // Add other atomic operations here
 
         pub rule kernel_function() -> KernelFunction
             = _ "__global__" _ "void" _ name:identifier() _ "(" _ params:parameter_list()? _ ")" _ body:block() {
@@ -55,7 +89,16 @@ peg::parser! {
             }
 
         rule statement() -> Statement
-            = for_loop()
+            = memory_fence()
+            / memory_barrier()
+            / dynamic_shared_memory()
+            / shared_memory()
+            / template_function()
+            / struct_declaration()
+            / device_function()
+            / sync_threads()
+            / atomic_operation()
+            / for_loop()
             / variable_declaration()
             / compound_assignment()
             / assignment()
@@ -168,14 +211,44 @@ peg::parser! {
             = name:identifier() { Expression::Variable(name) }
 
         rule math_function() -> Expression
-            = "max" _ "(" _ x:expression() _ "," _ y:expression() _ ")" {
-                Expression::MathFunction {
-                    name: "max".to_string(),
-                    arguments: vec![x, y],
-                }
+            = "sin" _ "(" _ x:expression() _ ")" {
+                Expression::MathFunction { name: "sin".to_string(), arguments: vec![x] }
             }
-            / "expf" _ "(" _ x:expression() _ ")" {
-                Expression::MathFunction { name: "expf".to_string(), arguments: vec![x], }
+            / "cos" _ "(" _ x:expression() _ ")" {
+                Expression::MathFunction { name: "cos".to_string(), arguments: vec![x] }
+            }
+            / "tan" _ "(" _ x:expression() _ ")" {
+                Expression::MathFunction { name: "tan".to_string(), arguments: vec![x] }
+            }
+            / "exp" _ "(" _ x:expression() _ ")" {
+                Expression::MathFunction { name: "exp".to_string(), arguments: vec![x] }
+            }
+            / "log" _ "(" _ x:expression() _ ")" {
+                Expression::MathFunction { name: "log".to_string(), arguments: vec![x] }
+            }
+            / "sqrt" _ "(" _ x:expression() _ ")" {
+                Expression::MathFunction { name: "sqrt".to_string(), arguments: vec![x] }
+            }
+            / "pow" _ "(" _ x:expression() _ "," _ y:expression() _ ")" {
+                Expression::MathFunction { name: "pow".to_string(), arguments: vec![x, y] }
+            }
+            / "max" _ "(" _ x:expression() _ "," _ y:expression() _ ")" {
+                Expression::MathFunction { name: "max".to_string(), arguments: vec![x, y] }
+            }
+            / "min" _ "(" _ x:expression() _ "," _ y:expression() _ ")" {
+                Expression::MathFunction { name: "min".to_string(), arguments: vec![x, y] }
+            }
+            / "abs" _ "(" _ x:expression() _ ")" {
+                Expression::MathFunction { name: "abs".to_string(), arguments: vec![x] }
+            }
+            / "floor" _ "(" _ x:expression() _ ")" {
+                Expression::MathFunction { name: "floor".to_string(), arguments: vec![x] }
+            }
+            / "ceil" _ "(" _ x:expression() _ ")" {
+                Expression::MathFunction { name: "ceil".to_string(), arguments: vec![x] }
+            }
+            / "round" _ "(" _ x:expression() _ ")" {
+                Expression::MathFunction { name: "round".to_string(), arguments: vec![x] }
             }
 
         rule infinity() -> Expression
@@ -241,5 +314,54 @@ peg::parser! {
             / "-=" { Operator::Subtract }
             / "*=" { Operator::Multiply }
             / "/=" { Operator::Divide }
+
+        rule struct_declaration() -> Statement
+            = "struct" _ name:identifier() _ "{" _
+              fields:(declaration() ** _) _
+              "}" _ ";" {
+                Statement::StructDecl {
+                    name,
+                    fields,
+                }
+            }
+
+        rule device_function() -> Statement
+            = "__device__" _ return_type:type_specifier() _
+              name:identifier() _ "(" _ params:parameter_list()? _ ")" _
+              body:block() {
+                Statement::DeviceFunction {
+                    name,
+                    parameters: params.unwrap_or_default(),
+                    return_type,
+                    body,
+                }
+            }
+
+        rule sync_threads() -> Statement
+            = "__syncthreads" _ "(" _ ")" _ ";" { Statement::SyncThreads }
+
+        rule memory_fence() -> Statement
+            = "__threadfence()" _ ";" { 
+                Statement::MemoryFence(MemoryFence::System) 
+            }
+            / "__threadfence_block()" _ ";" { 
+                Statement::MemoryFence(MemoryFence::Shared) 
+            }
+            / "__threadfence_system()" _ ";" { 
+                Statement::MemoryFence(MemoryFence::System) 
+            }
+
+        rule memory_barrier() -> Statement
+            = "__syncthreads_and_fence" _ "(" _ scope:sync_scope() _ ")" _ ";" {
+                Statement::MemoryBarrier {
+                    scope,
+                    fence: MemoryFence::System,
+                }
+            }
+
+        rule sync_scope() -> SyncScope
+            = "gridwide" { SyncScope::Grid }
+            / "blockwide" { SyncScope::Block }
+            / "systemwide" { SyncScope::System }
     }
 }
