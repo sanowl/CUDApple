@@ -77,7 +77,7 @@ pub enum Statement {
         value: Expression,
     },
     Expression(Box<Expression>),
-    SyncThreads,  // __syncthreads()
+    SyncThreads,
     AtomicOperation {
         operation: AtomicOp,
         target: Expression,
@@ -228,7 +228,7 @@ pub enum AtomicOp {
     And,
     Or,
     Xor,
-    CAS,  // Compare and swap
+    CAS,
 }
 
 #[derive(Debug, Clone, PartialEq)]
