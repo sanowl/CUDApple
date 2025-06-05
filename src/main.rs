@@ -30,6 +30,18 @@ struct Args {
     // run the kernel after generation
     #[arg(short, long)]
     run: bool,
+
+    /// Print the parsed Abstract Syntax Tree to stdout
+    #[arg(long)]
+    print_ast: bool,
+
+    /// Print the generated Metal shader to stdout
+    #[arg(long)]
+    emit_metal: bool,
+
+    /// List kernels found in the input file
+    #[arg(long)]
+    list_kernels: bool,
 }
 
 fn validate_input(path: &PathBuf) -> Result<()> {
@@ -178,6 +190,18 @@ fn main() -> Result<()> {
         }
     }
 
+    if args.list_kernels {
+        print_section_header("Kernels");
+        for kernel in &cuda_program.device_code {
+            println!("{}", kernel.name);
+        }
+    }
+
+    if args.print_ast {
+        print_section_header("AST Dump");
+        println!("{:#?}", cuda_program);
+    }
+
     // Generate Metal shader
     print_section_header("Metal Translation");
     let mut metal_shader = metal::MetalShader::new();
@@ -217,6 +241,11 @@ fn main() -> Result<()> {
     log::info!("   ├─ Dimensions: {}", dimensions);
     log::info!("   ├─ Grid size: {:?}", config.grid_size);
     log::info!("   └─ Thread group size: {:?}", config.threadgroup_size);
+
+    if args.emit_metal {
+        print_section_header("Metal Shader");
+        println!("{}", metal_shader.source());
+    }
 
     // Write Metal shader
     print_section_header("File Generation");

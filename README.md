@@ -15,6 +15,9 @@ To try out the project, clone the repository and follow these steps:
 
 1. **Compile the Project**: Use `cargo build` to compile the Rust code.
 2. **Run a Kernel**: Use `cd src` and `cargo run -- -i examples/vector_add.cu -d output/ --run -v` to translate and execute a CUDA kernel.
+3. **Inspect the AST**: Add `--print-ast` to print the parsed Abstract Syntax Tree.
+4. **Print Metal Code**: Use `--emit-metal` to print the generated Metal shader.
+5. **List Kernels**: Add `--list-kernels` to display detected kernel names.
 
 ## Core Components
 
