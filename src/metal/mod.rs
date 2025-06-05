@@ -1,7 +1,8 @@
 use host::MetalKernelConfig;
 
 use crate::parser::unified_ast::{
-    CudaProgram, Dimension, Expression, KernelFunction, Operator, Statement, Type,
+    CudaProgram, Dimension, Expression, KernelFunction, Operator, Statement,
+    Type,
 };
 use std::fmt::Write;
 pub mod host;
@@ -283,8 +284,8 @@ impl MetalShader {
                     _,
                 ) = (&**lhs, op, &**rhs)
                 {
-                    if is_thread_index_component(inner_lhs)
-                        && is_thread_index_component(inner_rhs)
+                    if is_thread_index_component(&inner_lhs)
+                        && is_thread_index_component(&inner_rhs)
                         && is_thread_index_component(rhs)
                     {
                         match self.config.dimensions {
@@ -372,6 +373,11 @@ impl MetalShader {
             Operator::Multiply => "*",
             Operator::Divide => "/",
             Operator::LessThan => "<",
+            Operator::LessThanEqual => "<=",
+            Operator::GreaterThan => ">",
+            Operator::GreaterThanEqual => ">=",
+            Operator::Equal => "==",
+            Operator::NotEqual => "!=",
             Operator::LogicalAnd => "&&",
             Operator::LogicalOr => "||",
         }
@@ -387,6 +393,24 @@ impl MetalShader {
             Type::Float => "float".to_string(),
             Type::Void => "void".to_string(),
             Type::Pointer(inner) => self.translate_type(inner),
+            Type::Vector(base_type, size) => {
+                let base = self.translate_type(base_type);
+                format!("{}{}", base, size)
+            },
+            Type::Struct(name) => format!("struct {}", name),
+            Type::Template(name, params) => {
+                let params_str: Vec<String> = params.iter()
+                    .map(|p| self.translate_type(p))
+                    .collect();
+                format!("{}<{}>", name, params_str.join(", "))
+            },
+            Type::Array(elem_type, size) => {
+                let base = self.translate_type(elem_type);
+                match size {
+                    Some(n) => format!("array<{}, {}>", base, n),
+                    None => format!("device {}*", base),  // Dynamic arrays become device pointers in Metal
+                }
+            },
         }
     }
 }

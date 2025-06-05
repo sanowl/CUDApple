@@ -1,5 +1,52 @@
 use std::fmt;
 
+pub use self::{
+    operators::Operator,
+    dimensions::Dimension,
+    types::Type,
+};
+
+mod operators {
+    #[derive(Debug, Clone, PartialEq)]
+    pub enum Operator {
+        Add,
+        Subtract,
+        Multiply,
+        Divide,
+        LessThan,
+        LessThanEqual,
+        GreaterThan,
+        GreaterThanEqual,
+        Equal,
+        NotEqual,
+        LogicalAnd,
+        LogicalOr,
+    }
+}
+
+mod dimensions {
+    #[derive(Debug, Clone, PartialEq)]
+    pub enum Dimension {
+        X,
+        Y,
+        Z,
+    }
+}
+
+pub mod types {
+    #[derive(Debug, Clone, PartialEq)]
+    pub enum Type {
+        Int,
+        Float,
+        Void,
+        Pointer(Box<Type>),
+        Vector(Box<Type>, usize),
+        Struct(String),
+        Template(String, Vec<Type>),
+        Array(Box<Type>, Option<usize>),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct CudaProgram {
     pub device_code: Vec<KernelFunction>,
@@ -97,18 +144,6 @@ pub enum Expression {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Type {
-    Int,
-    Float,
-    Void,
-    Pointer(Box<Type>),
-    Vector(Box<Type>, usize),  // For float4, int2 etc
-    Struct(String),  // For user-defined structs
-    Template(String, Vec<Type>),  // For template types
-    Array(Box<Type>, Option<usize>),  // For fixed and dynamic arrays
-}
-
-#[derive(Debug, Clone, PartialEq)]
 pub enum MemorySpace {
     Global,
     Shared,
@@ -124,26 +159,43 @@ impl fmt::Display for Type {
             Type::Int => write!(f, "int"),
             Type::Float => write!(f, "float"),
             Type::Pointer(inner) => write!(f, "{}*", inner),
+            Type::Vector(base_type, size) => write!(f, "{}{}", base_type, size),
+            Type::Struct(name) => write!(f, "struct {}", name),
+            Type::Template(name, params) => {
+                write!(f, "{}<", name)?;
+                for (i, param) in params.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", param)?;
+                }
+                write!(f, ">")
+            },
+            Type::Array(elem_type, size) => match size {
+                Some(n) => write!(f, "{}[{}]", elem_type, n),
+                None => write!(f, "{}[]", elem_type),
+            },
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum Dimension {
-    X,
-    Y,
-    Z,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum Operator {
-    Add,
-    Subtract,
-    Multiply,
-    Divide,
-    LessThan,
-    LogicalAnd,
-    LogicalOr,
+impl fmt::Display for Operator {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Operator::Add => write!(f, "+"),
+            Operator::Subtract => write!(f, "-"),
+            Operator::Multiply => write!(f, "*"),
+            Operator::Divide => write!(f, "/"),
+            Operator::LessThan => write!(f, "<"),
+            Operator::LessThanEqual => write!(f, "<="),
+            Operator::GreaterThan => write!(f, ">"),
+            Operator::GreaterThanEqual => write!(f, ">="),
+            Operator::Equal => write!(f, "=="),
+            Operator::NotEqual => write!(f, "!="),
+            Operator::LogicalAnd => write!(f, "&&"),
+            Operator::LogicalOr => write!(f, "||"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

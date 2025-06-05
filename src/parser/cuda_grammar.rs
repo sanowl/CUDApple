@@ -1,4 +1,8 @@
-use crate::parser::unified_ast::*;
+use crate::parser::unified_ast::{
+    AtomicOp, Assignment, Block, Declaration, Dimension, Expression,
+    KernelFunction, MemoryFence, MemorySpace, Operator, Parameter, Qualifier,
+    Statement, SyncScope, Type
+};
 
 peg::parser! {
     pub grammar cuda_parser() for str {
@@ -15,7 +19,7 @@ peg::parser! {
         / { MemorySpace::Global }
 
     rule vector_type() -> Type
-        = base:("float" / "int" / "double") size:$(['1'..='4']) {
+        = base:$("float" / "int" / "double") size:$(['1'..='4']) {
             let base_type = match base {
                 "float" => Type::Float,
                 "int" => Type::Int,
@@ -89,24 +93,21 @@ peg::parser! {
             }
 
         rule statement() -> Statement
-            = memory_fence()
-            / memory_barrier()
-            / dynamic_shared_memory()
-            / shared_memory()
-            / template_function()
-            / struct_declaration()
-            / device_function()
-            / sync_threads()
-            / atomic_operation()
-            / for_loop()
+            = for_loop()
             / variable_declaration()
             / compound_assignment()
             / assignment()
             / if_statement()
+            / device_function()
+            / struct_declaration()
+            / sync_threads()
+            / atomic_operation()
+            / memory_fence()
+            / memory_barrier()
             / e:expression() _ ";" { Statement::Expression(Box::new(e)) }
 
         rule variable_declaration() -> Statement
-            = var_type:type_specifier() _ name:identifier() _ ptr:"*"? _ ";" {
+            = mem:memory_space()? _ var_type:type_specifier() _ name:identifier() _ ptr:"*"? _ ";" {
                 Statement::VariableDecl(Declaration {
                     var_type: if ptr.is_some() {
                         Type::Pointer(Box::new(var_type))
@@ -115,13 +116,17 @@ peg::parser! {
                     },
                     name,
                     initializer: None,
+                    memory_space: mem.unwrap_or(MemorySpace::Default),
+                    qualifiers: vec![],
                 })
             }
-            / var_type:type_specifier() _ name:identifier() _ init:("=" _ e:expression() { e })? _ ";" {
+            / mem:memory_space()? _ var_type:type_specifier() _ name:identifier() _ init:("=" _ e:expression() { e })? _ ";" {
                 Statement::VariableDecl(Declaration {
                     var_type,
                     name,
                     initializer: init,
+                    memory_space: mem.unwrap_or(MemorySpace::Default),
+                    qualifiers: vec![],
                 })
             }
 
@@ -129,6 +134,7 @@ peg::parser! {
             = "int" { Type::Int }
             / "float" { Type::Float }
             / "void" { Type::Void }
+            / vector_type()
 
         rule assignment() -> Statement
             = target:(array_access() / variable()) _ "=" _ value:expression() _ ";" {
@@ -167,6 +173,8 @@ peg::parser! {
                     var_type,
                     name,
                     initializer: Some(value),
+                    memory_space: MemorySpace::Default,
+                    qualifiers: vec![],
                 })
             }
 
@@ -260,7 +268,13 @@ peg::parser! {
         rule expression() -> Expression = precedence! {
             x:(@) _ "&&" _ y:@ { Expression::BinaryOp(Box::new(x), Operator::LogicalAnd, Box::new(y))}
             x:(@) _ "||" _ y:@ {Expression::BinaryOp(Box::new(x), Operator::LogicalOr, Box::new(y))}
+            --
             x:(@) _ "<" _ y:@ { Expression::BinaryOp(Box::new(x), Operator::LessThan, Box::new(y)) }
+            x:(@) _ ">=" _ y:@ { Expression::BinaryOp(Box::new(x), Operator::GreaterThanEqual, Box::new(y)) }
+            x:(@) _ "<=" _ y:@ { Expression::BinaryOp(Box::new(x), Operator::LessThanEqual, Box::new(y)) }
+            x:(@) _ ">" _ y:@ { Expression::BinaryOp(Box::new(x), Operator::GreaterThan, Box::new(y)) }
+            x:(@) _ "==" _ y:@ { Expression::BinaryOp(Box::new(x), Operator::Equal, Box::new(y)) }
+            x:(@) _ "!=" _ y:@ { Expression::BinaryOp(Box::new(x), Operator::NotEqual, Box::new(y)) }
             --
             x:(@) _ "+" _ y:@ { Expression::BinaryOp(Box::new(x), Operator::Add, Box::new(y)) }
             x:(@) _ "-" _ y:@ { Expression::BinaryOp(Box::new(x), Operator::Subtract, Box::new(y)) }
@@ -268,13 +282,17 @@ peg::parser! {
             x:(@) _ "*" _ y:@ { Expression::BinaryOp(Box::new(x), Operator::Multiply, Box::new(y)) }
             x:(@) _ "/" _ y:@ { Expression::BinaryOp(Box::new(x), Operator::Divide, Box::new(y)) }
             --
-            n:number() { n }
-            i:infinity() { i }
-            t:thread_index() { t }
-            m:math_function() { m }
-            a:array_access() { a }
-            v:variable() { v }
-            "(" _ e:expression() _ ")" { e }
+            term:(@)
+            where
+                term = {
+                    n:number() { n }
+                    / i:infinity() { i }
+                    / t:thread_index() { t }
+                    / m:math_function() { m }
+                    / a:array_access() { a }
+                    / v:variable() { v }
+                    / "(" _ e:expression() _ ")" { e }
+                }
         }
 
         rule number() -> Expression
@@ -314,6 +332,18 @@ peg::parser! {
             / "-=" { Operator::Subtract }
             / "*=" { Operator::Multiply }
             / "/=" { Operator::Divide }
+
+        // Rule for parsing struct field declarations
+        rule declaration() -> Declaration
+            = mem:memory_space()? _ var_type:type_specifier() _ name:identifier() _ ";" {
+                Declaration {
+                    var_type,
+                    name,
+                    initializer: None,
+                    memory_space: mem.unwrap_or(MemorySpace::Default),
+                    qualifiers: vec![],
+                }
+            }
 
         rule struct_declaration() -> Statement
             = "struct" _ name:identifier() _ "{" _
