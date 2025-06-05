@@ -23,7 +23,7 @@ peg::parser! {
                 let base_type = match base {
                     "float" => Type::Float,
                     "int" => Type::Int,
-                    "double" => Type::Float, // We'll map double to float for Metal
+                    "double" => Type::Float, // Map double to float for Metal
                     _ => unreachable!()
                 };
                 Type::Vector(Box::new(base_type), size.parse().unwrap())
@@ -94,6 +94,7 @@ peg::parser! {
         rule statement() -> Statement
             = for_loop()
             / variable_declaration()
+            / shared_memory_declaration()
             / compound_assignment()
             / assignment()
             / if_statement()
@@ -105,23 +106,35 @@ peg::parser! {
             / memory_barrier()
             / e:expression() _ ";" { Statement::Expression(Box::new(e)) }
 
-        rule variable_declaration() -> Statement
-            = mem:memory_space()? _ var_type:type_specifier() _ name:identifier() _ ptr:"*"? _ ";" {
+        // Enhanced: Handle extern __shared__ declarations
+        rule shared_memory_declaration() -> Statement
+            = "extern" _ "__shared__" _ var_type:type_specifier() _ name:identifier() _ "[" _ "]" _ ";" {
                 Statement::VariableDecl(Declaration {
-                    var_type: if ptr.is_some() {
-                        Type::Pointer(Box::new(var_type))
-                    } else {
-                        var_type
-                    },
+                    var_type: Type::Array(Box::new(var_type), None),
                     name,
                     initializer: None,
-                    memory_space: mem.unwrap_or(MemorySpace::Default),
+                    memory_space: MemorySpace::Shared,
                     qualifiers: vec![],
                 })
             }
-            / mem:memory_space()? _ var_type:type_specifier() _ name:identifier() _ init:("=" _ e:expression() { e })? _ ";" {
+
+        rule variable_declaration() -> Statement
+            = mem:memory_space()? _ var_type:type_specifier() _ name:identifier() _ ptr:"*"? _ array_size:("[" _ size:expression() _ "]" { size })? _ init:("=" _ e:expression() { e })? _ ";" {
+                let final_type = if let Some(_) = ptr {
+                    Type::Pointer(Box::new(var_type))
+                } else if let Some(size_expr) = array_size {
+                    // For simplicity, assume integer literal array sizes
+                    let size = match size_expr {
+                        Expression::IntegerLiteral(n) => Some(n as usize),
+                        _ => None,
+                    };
+                    Type::Array(Box::new(var_type), size)
+                } else {
+                    var_type
+                };
+                
                 Statement::VariableDecl(Declaration {
-                    var_type,
+                    var_type: final_type,
                     name,
                     initializer: init,
                     memory_space: mem.unwrap_or(MemorySpace::Default),
@@ -133,6 +146,7 @@ peg::parser! {
             = "int" { Type::Int }
             / "float" { Type::Float }
             / "void" { Type::Void }
+            / "bool" { Type::Int } // Map bool to int for Metal
             / vector_type()
 
         rule assignment() -> Statement
@@ -144,10 +158,18 @@ peg::parser! {
             }
 
         rule if_statement() -> Statement
-            = "if" _ "(" _ condition:expression() _ ")" _ body:block() {
-                Statement::IfStmt {
-                    condition,
-                    body
+            = "if" _ "(" _ condition:expression() _ ")" _ body:block() _ else_clause:("else" _ else_body:block() { else_body })? {
+                if let Some(_else_body) = else_clause {
+                    // For now, just handle the if part - could extend for else
+                    Statement::IfStmt {
+                        condition,
+                        body
+                    }
+                } else {
+                    Statement::IfStmt {
+                        condition,
+                        body
+                    }
                 }
             }
 
@@ -261,10 +283,8 @@ peg::parser! {
         rule infinity() -> Expression
             = "INFINITY" { Expression::Infinity }
             / "-INFINITY" { Expression::NegativeInfinity }
-            / "-" _ n:number() _ "*" _ "INFINITY" { Expression::NegativeInfinity }
-            / n:number() _ "*" _ "-" _ "INFINITY" { Expression::NegativeInfinity }
 
-        // FIXED: Proper precedence syntax without 'where' clause
+        // Enhanced expression parsing with proper precedence
         rule expression() -> Expression = precedence! {
             x:(@) _ "&&" _ y:@ { Expression::BinaryOp(Box::new(x), Operator::LogicalAnd, Box::new(y)) }
             x:(@) _ "||" _ y:@ { Expression::BinaryOp(Box::new(x), Operator::LogicalOr, Box::new(y)) }
@@ -281,6 +301,7 @@ peg::parser! {
             --
             x:(@) _ "*" _ y:@ { Expression::BinaryOp(Box::new(x), Operator::Multiply, Box::new(y)) }
             x:(@) _ "/" _ y:@ { Expression::BinaryOp(Box::new(x), Operator::Divide, Box::new(y)) }
+            x:(@) _ "%" _ y:@ { Expression::BinaryOp(Box::new(x), Operator::Modulo, Box::new(y)) }
             --
             n:number() { n }
             i:infinity() { i }

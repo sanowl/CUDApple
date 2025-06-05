@@ -1,5 +1,8 @@
-pub mod cuda_grammar;
 pub mod unified_ast;
+pub mod cuda_parser;
+
+pub use unified_ast::*;
+pub use cuda_parser::*;
 
 #[cfg(test)]
 mod tests;
