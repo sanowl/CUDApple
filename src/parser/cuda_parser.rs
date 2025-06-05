@@ -6,45 +6,44 @@ use crate::parser::unified_ast::{
 
 peg::parser! {
     pub grammar cuda_parser() for str {
-    rule _() = quiet!{([' ' | '\t' | '\n' | '\r'] / comment())*}
+        rule _() = quiet!{([' ' | '\t' | '\n' | '\r'] / comment())*}
 
-    rule comment() = block_comment() / line_comment()
-    rule block_comment() = "/*" (!"*/" [_])* "*/"
-    rule line_comment() = "//" (!"\n" [_])* ("\n" / ![_])
+        rule comment() = block_comment() / line_comment()
+        rule block_comment() = "/*" (!"*/" [_])* "*/"
+        rule line_comment() = "//" (!"\n" [_])* ("\n" / ![_])
 
-    rule memory_space() -> MemorySpace
-        = "__shared__" { MemorySpace::Shared }
-        / "__constant__" { MemorySpace::Constant }
-        / "__device__" { MemorySpace::Default }
-        / { MemorySpace::Global }
+        rule memory_space() -> MemorySpace
+            = "__shared__" { MemorySpace::Shared }
+            / "__constant__" { MemorySpace::Constant }
+            / "__device__" { MemorySpace::Default }
+            / { MemorySpace::Global }
 
-    rule vector_type() -> Type
-        = base:$("float" / "int" / "double") size:$(['1'..='4']) {
-            let base_type = match base {
-                "float" => Type::Float,
-                "int" => Type::Int,
-                "double" => Type::Float, // We'll map double to float for Metal
-                _ => unreachable!()
-            };
-            Type::Vector(Box::new(base_type), size.parse().unwrap())
-        }
-
-    rule atomic_operation() -> Statement
-        = "atomicAdd" "(" target:expression() "," value:expression() ")" {
-            Statement::AtomicOperation {
-                operation: AtomicOp::Add,
-                target,
-                value,
+        rule vector_type() -> Type
+            = base:$("float" / "int" / "double") size:$(['1'..='4']) {
+                let base_type = match base {
+                    "float" => Type::Float,
+                    "int" => Type::Int,
+                    "double" => Type::Float, // We'll map double to float for Metal
+                    _ => unreachable!()
+                };
+                Type::Vector(Box::new(base_type), size.parse().unwrap())
             }
-        }
-        / "atomicSub" "(" target:expression() "," value:expression() ")" {
-            Statement::AtomicOperation {
-                operation: AtomicOp::Sub,
-                target,
-                value,
+
+        rule atomic_operation() -> Statement
+            = "atomicAdd" "(" target:expression() "," value:expression() ")" {
+                Statement::AtomicOperation {
+                    operation: AtomicOp::Add,
+                    target,
+                    value,
+                }
             }
-        }
-        // Add other atomic operations here
+            / "atomicSub" "(" target:expression() "," value:expression() ")" {
+                Statement::AtomicOperation {
+                    operation: AtomicOp::Sub,
+                    target,
+                    value,
+                }
+            }
 
         pub rule kernel_function() -> KernelFunction
             = _ "__global__" _ "void" _ name:identifier() _ "(" _ params:parameter_list()? _ ")" _ body:block() {
@@ -265,9 +264,10 @@ peg::parser! {
             / "-" _ n:number() _ "*" _ "INFINITY" { Expression::NegativeInfinity }
             / n:number() _ "*" _ "-" _ "INFINITY" { Expression::NegativeInfinity }
 
+        // FIXED: Proper precedence syntax without 'where' clause
         rule expression() -> Expression = precedence! {
-            x:(@) _ "&&" _ y:@ { Expression::BinaryOp(Box::new(x), Operator::LogicalAnd, Box::new(y))}
-            x:(@) _ "||" _ y:@ {Expression::BinaryOp(Box::new(x), Operator::LogicalOr, Box::new(y))}
+            x:(@) _ "&&" _ y:@ { Expression::BinaryOp(Box::new(x), Operator::LogicalAnd, Box::new(y)) }
+            x:(@) _ "||" _ y:@ { Expression::BinaryOp(Box::new(x), Operator::LogicalOr, Box::new(y)) }
             --
             x:(@) _ "<" _ y:@ { Expression::BinaryOp(Box::new(x), Operator::LessThan, Box::new(y)) }
             x:(@) _ ">=" _ y:@ { Expression::BinaryOp(Box::new(x), Operator::GreaterThanEqual, Box::new(y)) }
@@ -282,17 +282,13 @@ peg::parser! {
             x:(@) _ "*" _ y:@ { Expression::BinaryOp(Box::new(x), Operator::Multiply, Box::new(y)) }
             x:(@) _ "/" _ y:@ { Expression::BinaryOp(Box::new(x), Operator::Divide, Box::new(y)) }
             --
-            term:(@)
-            where
-                term = {
-                    n:number() { n }
-                    / i:infinity() { i }
-                    / t:thread_index() { t }
-                    / m:math_function() { m }
-                    / a:array_access() { a }
-                    / v:variable() { v }
-                    / "(" _ e:expression() _ ")" { e }
-                }
+            n:number() { n }
+            i:infinity() { i }
+            t:thread_index() { t }
+            m:math_function() { m }
+            a:array_access() { a }
+            v:variable() { v }
+            "(" _ e:expression() _ ")" { e }
         }
 
         rule number() -> Expression
@@ -333,7 +329,6 @@ peg::parser! {
             / "*=" { Operator::Multiply }
             / "/=" { Operator::Divide }
 
-        // Rule for parsing struct field declarations
         rule declaration() -> Declaration
             = mem:memory_space()? _ var_type:type_specifier() _ name:identifier() _ ";" {
                 Declaration {
