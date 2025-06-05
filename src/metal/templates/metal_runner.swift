@@ -42,15 +42,50 @@ class MetalKernelRunner {
             #include <metal_math>
             using namespace metal;
             
-            {{KERNEL_DEFINITIONS}}
+            // Vector Addition Kernel - Transpiled from CUDA
+            kernel void vectorAdd(device const float* a [[buffer(0)]],
+                                device const float* b [[buffer(1)]],
+                                device float* c [[buffer(2)]],
+                                constant uint& n [[buffer(3)]],
+                                uint index [[thread_position_in_grid]]) {
+                if (index < n) {
+                    c[index] = a[index] + b[index];
+                }
+            }
+            
+            // Matrix Addition Kernel - 2D Example
+            kernel void matrixAdd(device const float* a [[buffer(0)]],
+                                device const float* b [[buffer(1)]],
+                                device float* c [[buffer(2)]],
+                                constant uint& width [[buffer(3)]],
+                                constant uint& height [[buffer(4)]],
+                                uint2 index [[thread_position_in_grid]]) {
+                uint x = index.x;
+                uint y = index.y;
+                if (x < width && y < height) {
+                    uint idx = y * width + x;
+                    c[idx] = a[idx] + b[idx];
+                }
+            }
+            
+            // Scalar Multiplication Kernel
+            kernel void scalarMultiply(device const float* input [[buffer(0)]],
+                                     device float* output [[buffer(1)]],
+                                     constant float& scalar [[buffer(2)]],
+                                     constant uint& n [[buffer(3)]],
+                                     uint index [[thread_position_in_grid]]) {
+                if (index < n) {
+                    output[index] = input[index] * scalar;
+                }
+            }
             """, 
             options: compileOptions)
 
-        if let error = library.makeFunction(name: "{{KERNEL_NAME}}")?.label {
+        if let error = library.makeFunction(name: "vectorAdd")?.label {
             print("Function creation error: \(error)")
         }
         
-        self.pipeline = try device.makeComputePipelineState(function: library.makeFunction(name: "{{KERNEL_NAME}}")!)
+        self.pipeline = try device.makeComputePipelineState(function: library.makeFunction(name: "vectorAdd")!)
     }
     
     func allocateBuffer<T>(_ data: [T], index: Int) -> MTLBuffer? {
@@ -93,9 +128,9 @@ class MetalKernelRunner {
         
         let config = KernelConfig.calculate(
             problemSize: problemSize,
-            dimensions: {{DIMENSIONS}},
-            width: {{WIDTH}},
-            height: {{HEIGHT}}
+            dimensions: 1,  // 1D vector operation
+            width: nil,
+            height: nil
         )
         
         print("\n=== Kernel Configuration ===")
@@ -210,15 +245,69 @@ struct KernelConfig {
             
             let threadGroupSize = MTLSize(width: 16, height: 16, depth: 1)
             let gridSize = MTLSize(
-                // width: (w + 15) / 16,  // Ceiling division for M dimension
-                // height: (h + 15) / 16, // Ceiling division for N dimension
-                // width: (w + threadGroupSize.width - 1) / threadGroupSize.width,
-                // height: (h + threadGroupSize.height - 1) / threadGroupSize.height,
-                width: w,
-                height: h,
+                width: (w + threadGroupSize.width - 1) / threadGroupSize.width,
+                height: (h + threadGroupSize.height - 1) / threadGroupSize.height,
                 depth: 1
             )
             return KernelConfig(gridSize: gridSize, threadGroupSize: threadGroupSize)
         }
     }
+}
+
+// MARK: - Main Execution Script
+
+import Foundation
+
+print("\n=== CUDApple Kernel Execution ===")
+print("• Emulating CUDA kernel: vectorAdd")
+
+// Initialize test data
+let n = 1024
+let a = Array(0..<n).map { Float($0) }           // [0, 1, 2, 3, ...]
+let b = Array(0..<n).map { Float($0 * 2) }       // [0, 2, 4, 6, ...]
+let c = Array(repeating: Float(0), count: n)     // Output array
+let size = UInt32(n)
+
+print("• Created input arrays with \(n) elements")
+print("• Array A: [\(a[0]), \(a[1]), \(a[2]), ..., \(a[n-1])]")
+print("• Array B: [\(b[0]), \(b[1]), \(b[2]), ..., \(b[n-1])]")
+
+do {
+    // Initialize our Metal kernel runner
+    let runner = try MetalKernelRunner()
+    let startTime = CFAbsoluteTimeGetCurrent()
+    
+    // Execute vector addition: c = a + b
+    let inputs: [(data: Any, type: Any.Type)] = [
+        (data: a, type: [Float].self),      // Input array A
+        (data: b, type: [Float].self),      // Input array B  
+        (data: c, type: [Float].self),      // Output array C
+        (data: size, type: UInt32.self)     // Array size
+    ]
+    
+    let result = try runner.executeKernel(inputs: inputs, outputType: Float.self)
+    
+    let endTime = CFAbsoluteTimeGetCurrent()
+    print("• Kernel execution completed in \(String(format: "%.3f", (endTime - startTime) * 1000))ms")
+    
+    print("\n=== Results ===")
+    print("• First 5 output values:")
+    for i in 0..<5 {
+        print("  [\(i)]: \(a[i]) + \(b[i]) = \(result[i])")
+    }
+    
+    print("• Last 5 output values:")
+    for i in (n-5)..<n {
+        print("  [\(i)]: \(a[i]) + \(b[i]) = \(result[i])")
+    }
+    
+    // Verify correctness
+    let isCorrect = zip(zip(a, b), result).allSatisfy { inputs, output in
+        abs(inputs.0 + inputs.1 - output) < 0.0001
+    }
+    
+    print("\n• Verification: \(isCorrect ? "✅ PASSED" : "❌ FAILED")")
+    
+} catch {
+    print("\n[ERROR] \(error)")
 }
