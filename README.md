@@ -18,6 +18,7 @@ To try out the project, clone the repository and follow these steps:
 3. **Inspect the AST**: Add `--print-ast` to print the parsed Abstract Syntax Tree.
 4. **Print Metal Code**: Use `--emit-metal` to print the generated Metal shader.
 5. **List Kernels**: Add `--list-kernels` to display detected kernel names.
+6. **Print Swift Host Code**: Use `--emit-host` to print the generated Swift files.
 
 ## Core Components
 

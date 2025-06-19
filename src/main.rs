@@ -39,6 +39,10 @@ struct Args {
     #[arg(long)]
     emit_metal: bool,
 
+    /// Print the generated Swift host code to stdout
+    #[arg(long)]
+    emit_host: bool,
+
     /// List kernels found in the input file
     #[arg(long)]
     list_kernels: bool,
@@ -264,14 +268,20 @@ fn main() -> Result<()> {
 
     // Write Swift host code
     let host_path = args.output.join("MetalKernelRunner.swift");
-    fs::write(&host_path, swift_runner_code).context("Failed to write Swift host code")?;
+    fs::write(&host_path, &swift_runner_code).context("Failed to write Swift host code")?;
 
     let main_path = args.output.join("main.swift");
-    fs::write(&main_path, swift_main_code).context("Failed to write Swift main code")?;
+    fs::write(&main_path, &swift_main_code).context("Failed to write Swift main code")?;
 
     log::info!("✓ Written Swift files:");
     log::info!("   ├─ {:?}", host_path);
     log::info!("   └─ {:?}", main_path);
+
+    if args.emit_host {
+        print_section_header("Swift Host");
+        println!("-- MetalKernelRunner.swift --\n{}", swift_runner_code);
+        println!("-- main.swift --\n{}", swift_main_code);
+    }
 
     // If --run flag is present, compile and execute the kernel
     if args.run {
