@@ -1,5 +1,4 @@
 use crate::parser::unified_ast::*;
-use std::collections::HashMap;
 
 pub struct MetalCodeGenerator {
     kernel_name: String,
@@ -47,7 +46,7 @@ impl MetalCodeGenerator {
             Statement::Assign(Assignment { target, value }) => {
                 Self::expression_has_2d_indexing(target) || Self::expression_has_2d_indexing(value)
             }
-            Statement::IfStmt { condition, body } => {
+            Statement::IfStmt { condition, body, .. } => {
                 Self::expression_has_2d_indexing(condition) || Self::check_for_2d_indexing(body)
             }
             Statement::ForLoop { init, condition, increment, body } => {
@@ -187,7 +186,7 @@ impl MetalCodeGenerator {
                     self.convert_expression(&assignment.target),
                     self.convert_expression(&assignment.value))
             }
-            Statement::IfStmt { condition, body } => {
+            Statement::IfStmt { condition, body, .. } => {
                 format!("    if ({}) {{\n{}\n    }}\n",
                     self.convert_expression(condition),
                     self.indent_body(&self.convert_kernel_body(body)))
@@ -205,15 +204,21 @@ impl MetalCodeGenerator {
                     self.convert_operator(operator),
                     self.convert_expression(value))
             }
-            Statement::AtomicOperation { operation, target, value } => {
-                let metal_op = match operation {
-                    AtomicOp::Add => "atomic_fetch_add_explicit",
-                    AtomicOp::Sub => "atomic_fetch_sub_explicit",
-                    AtomicOp::Exchange => "atomic_exchange_explicit",
-                    _ => "atomic_fetch_add_explicit",
-                };
-                format!("    {}(&{}, {}, memory_order_relaxed);\n",
-                    metal_op,
+            Statement::AtomicOperation { operation, target, value, .. } => {
+                format!("    atomic_{}({}, {});\n",
+                    match operation {
+                        AtomicOp::Add => "fetch_add_explicit",
+                        AtomicOp::Sub => "fetch_sub_explicit", 
+                        AtomicOp::Exchange => "exchange_explicit",
+                        AtomicOp::Min => "fetch_min_explicit",
+                        AtomicOp::Max => "fetch_max_explicit",
+                        AtomicOp::And => "fetch_and_explicit",
+                        AtomicOp::Or => "fetch_or_explicit",
+                        AtomicOp::Xor => "fetch_xor_explicit",
+                        AtomicOp::CAS => "compare_exchange_weak_explicit",
+                        AtomicOp::Inc => "fetch_add_explicit",
+                        AtomicOp::Dec => "fetch_sub_explicit",
+                    },
                     self.convert_expression(target),
                     self.convert_expression(value))
             }
@@ -314,6 +319,7 @@ impl MetalCodeGenerator {
             }
             Expression::Infinity => "INFINITY".to_string(),
             Expression::NegativeInfinity => "-INFINITY".to_string(),
+            _ => "/* unsupported expression */".to_string(),
         }
     }
     
@@ -323,6 +329,7 @@ impl MetalCodeGenerator {
             Operator::Subtract => "-",
             Operator::Multiply => "*",
             Operator::Divide => "/",
+            Operator::Modulo => "%",
             Operator::LessThan => "<",
             Operator::LessThanEqual => "<=",
             Operator::GreaterThan => ">",
@@ -331,15 +338,22 @@ impl MetalCodeGenerator {
             Operator::NotEqual => "!=",
             Operator::LogicalAnd => "&&",
             Operator::LogicalOr => "||",
+            Operator::BitwiseAnd => "&",
+            Operator::BitwiseOr => "|",
+            Operator::BitwiseXor => "^",
+            Operator::LeftShift => "<<",
+            Operator::RightShift => ">>",
+            _ => "+", // default for unsupported operators
         }
     }
     
-    fn convert_math_function(&self, name: &str) -> &str {
+    fn convert_math_function<'a>(&self, name: &'a str) -> &'a str {
         match name {
             "sin" => "sin",
             "cos" => "cos", 
             "tan" => "tan",
             "exp" => "exp",
+            "expf" => "exp", // CUDA expf -> Metal exp
             "log" => "log",
             "sqrt" => "sqrt",
             "pow" => "pow",

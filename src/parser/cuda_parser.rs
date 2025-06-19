@@ -35,6 +35,7 @@ peg::parser! {
                     operation: AtomicOp::Add,
                     target,
                     value,
+                    compare: None,
                 }
             }
             / "atomicSub" "(" target:expression() "," value:expression() ")" {
@@ -42,6 +43,7 @@ peg::parser! {
                     operation: AtomicOp::Sub,
                     target,
                     value,
+                    compare: None,
                 }
             }
 
@@ -50,7 +52,10 @@ peg::parser! {
                 KernelFunction {
                     name,
                     parameters: params.unwrap_or_default(),
-                    body
+                    body,
+                    launch_bounds: None,
+                    shared_memory_size: None,
+                    qualifiers: vec![],
                 }
             }
 
@@ -159,17 +164,10 @@ peg::parser! {
 
         rule if_statement() -> Statement
             = "if" _ "(" _ condition:expression() _ ")" _ body:block() _ else_clause:("else" _ else_body:block() { else_body })? {
-                if let Some(_else_body) = else_clause {
-                    // For now, just handle the if part - could extend for else
-                    Statement::IfStmt {
-                        condition,
-                        body
-                    }
-                } else {
-                    Statement::IfStmt {
-                        condition,
-                        body
-                    }
+                Statement::IfStmt {
+                    condition,
+                    body,
+                    else_body: else_clause,
                 }
             }
 
@@ -315,11 +313,11 @@ peg::parser! {
         rule number() -> Expression
             = n:$(['0'..='9']+ "." ['0'..='9']* "f"?) {
                 let n = n.trim_end_matches('f');
-                Expression::FloatLiteral(n.parse::<f32>().unwrap())
+                Expression::FloatLiteral(n.parse::<f64>().unwrap())
             }
             / n:$(['0'..='9']+ "f") {
                 let n = n.trim_end_matches('f');
-                Expression::FloatLiteral(n.parse::<f32>().unwrap())
+                Expression::FloatLiteral(n.parse::<f64>().unwrap())
             }
             / n:$(['0'..='9']+) {
                 Expression::IntegerLiteral(n.parse().unwrap())
@@ -373,13 +371,13 @@ peg::parser! {
 
         rule device_function() -> Statement
             = "__device__" _ return_type:type_specifier() _
-              name:identifier() _ "(" _ params:parameter_list()? _ ")" _
-              body:block() {
+              name:identifier() _ "(" _ params:parameter_list()? _ ")" _ body:block() {
                 Statement::DeviceFunction {
                     name,
                     parameters: params.unwrap_or_default(),
                     return_type,
                     body,
+                    qualifiers: vec![],
                 }
             }
 
@@ -409,5 +407,19 @@ peg::parser! {
             = "gridwide" { SyncScope::Grid }
             / "blockwide" { SyncScope::Block }
             / "systemwide" { SyncScope::System }
+
+        rule float_literal() -> Expression
+            = n:$(['0'..='9']+ "." ['0'..='9']* "f"?) {
+                Expression::FloatLiteral(n.trim_end_matches('f').parse::<f64>().unwrap())
+            }
+            / n:$(['0'..='9']* "." ['0'..='9']+ "f"?) {
+                Expression::FloatLiteral(n.trim_end_matches('f').parse::<f64>().unwrap())
+            }
+            
+        rule primary() -> Expression
+            = n:$(['0'..='9']+) { Expression::IntegerLiteral(n.parse().unwrap()) }
+            / float_literal()
+            / i:identifier() { Expression::Variable(i) }
+            / "(" _ e:expression() _ ")" { e }
     }
 }
