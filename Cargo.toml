@@ -1,17 +1,58 @@
 [package]
 name = "cudapple"
-version = "1.0.0"
+version = "2.0.0"
 edition = "2021"
+authors = ["CUDApple Team"]
+description = "Advanced CUDA-to-Metal transpiler with intelligent optimization for Apple Silicon"
+documentation = "https://docs.rs/cudapple"
+homepage = "https://github.com/your-org/cudapple"
+repository = "https://github.com/your-org/cudapple"
+license = "MIT OR Apache-2.0"
+keywords = ["cuda", "metal", "gpu", "apple", "transpiler"]
+categories = ["development-tools", "graphics", "hardware-support"]
+readme = "README.md"
+
+[lib]
+name = "cudapple"
+crate-type = ["lib"]
+
+[[bin]]
+name = "cudapple"
+path = "src/main.rs"
 
 [dependencies]
-clap = { version = "4.4", features = ["derive"] }
-peg = "0.8"
 anyhow = "1.0"
+clap = { version = "4.0", features = ["derive"] }
+peg = "0.8"
 thiserror = "1.0"
 log = "0.4"
 env_logger = "0.10"
 
 [dev-dependencies]
-tempfile = "3.8"
-assert_cmd = "2.0"
-predicates = "3.0"
+tempfile = "3.0"
+criterion = "0.5"
+pretty_assertions = "1.0"
+
+# [[bench]]
+# name = "transpilation_bench"
+# harness = false
+
+[profile.release]
+debug = true
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[profile.dev]
+debug = true
+
+[features]
+default = ["optimization", "analysis"]
+optimization = []
+analysis = []
+benchmarking = []
+profiling = []
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
