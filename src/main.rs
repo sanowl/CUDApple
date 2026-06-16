@@ -44,6 +44,10 @@ struct Args {
     #[arg(long)]
     emit_metal: bool,
 
+    /// Print the generated Swift/Metal host runner to stdout
+    #[arg(long)]
+    emit_host: bool,
+
     /// List kernels found in the input file
     #[arg(long)]
     list_kernels: bool,
@@ -317,6 +321,11 @@ fn main() -> Result<()> {
         println!("{}", metal_code);
     }
 
+    if args.emit_host {
+        print_section_header("Swift Host Runner");
+        println!("{}", swift_runner);
+    }
+
     // Write files
     print_section_header("File Generation");
     
@@ -324,12 +333,15 @@ fn main() -> Result<()> {
     fs::write(&metal_file, metal_code).context("Failed to write Metal shader file")?;
     log::info!("✓ Written Metal shader: {:?}", metal_file);
 
-    let runner_file = args.output.join("MetalKernelRunner.swift");
-    fs::write(&runner_file, swift_runner).context("Failed to write Swift runner file")?;
-    
     let main_swift = args.output.join("main.swift");
-    let main_content = include_str!("metal/templates/main.swift");
-    fs::write(&main_swift, main_content).context("Failed to write main.swift file")?;
+    fs::write(&main_swift, swift_runner).context("Failed to write main.swift file")?;
+
+    let runner_file = args.output.join("MetalKernelRunner.swift");
+    fs::write(
+        &runner_file,
+        "// CUDApple generated executable host code is emitted in main.swift.\n",
+    )
+    .context("Failed to write Swift support file")?;
     
     log::info!("✓ Written Swift files:");
     log::info!("   ├─ {:?}", runner_file);
